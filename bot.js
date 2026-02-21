@@ -56,7 +56,7 @@ async function startBot() {
         // ====== KELUAR ======
         if (text.startsWith("/keluar")) {
             try {
-                await axios.post("http://localhost:5678/webhook/keluar", {
+                await axios.post("http://host.docker.internal:5678/webhook/keluar", {
                     text: text
                 })
 
@@ -79,7 +79,7 @@ async function startBot() {
         // ====== TOTAL ======
         if (text.startsWith("/total")) {
             try {
-                const res = await axios.post("http://localhost:5678/webhook/total")
+                const res = await axios.post("http://host.docker.internal:5678/webhook/total")
 
                 const total = res.data.total
 
@@ -101,7 +101,7 @@ async function startBot() {
 
         if (text.startsWith("/hariini")) {
             try {
-                const res = await axios.post("http://localhost:5678/webhook/hariini")
+                const res = await axios.post("http://host.docker.internal:5678/webhook/hariini")
 
                 await sock.sendMessage(from, {
                     text: res.data.message

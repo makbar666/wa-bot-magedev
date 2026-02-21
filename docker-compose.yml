@@ -1,0 +1,7 @@
+services:
+  wa-bot:
+    build: .
+    container_name: wa-bot
+    volumes:
+      - ./session:/app/session
+    restart: unless-stopped
