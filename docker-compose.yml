@@ -2,6 +2,11 @@ services:
   wa-bot:
     build: .
     container_name: wa-bot
+    environment:
+      - WEBHOOK_BASE_URL=http://host.docker.internal:5678/webhook
+      - DAILY_SEND_ENABLED=true
+      - DAILY_SEND_TIME=10:00
+      - DAILY_SEND_TO=085254099133,085283237149
     volumes:
       - ./session:/app/session
     restart: unless-stopped
