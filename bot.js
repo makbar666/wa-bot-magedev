@@ -9,6 +9,7 @@ const DAILY_SEND_TIME = process.env.DAILY_SEND_TIME || "10:00"
 const DAILY_SEND_TO = process.env.DAILY_SEND_TO || ""
 
 let dailySchedulerHandle = null
+let lastDailySentDateKey = ""
 
 function normalizeRecipient(input) {
     const raw = String(input || "").trim()
@@ -37,6 +38,13 @@ function parseTimeToMinutes(timeText) {
     if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return 600
 
     return hour * 60 + minute
+}
+
+function getLocalDateKey(date = new Date()) {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, "0")
+    const day = String(date.getDate()).padStart(2, "0")
+    return `${year}-${month}-${day}`
 }
 
 async function sendDailySummary(sock) {
@@ -81,23 +89,27 @@ function setupDailyScheduler(sock) {
     }
 
     const targetMinutes = parseTimeToMinutes(DAILY_SEND_TIME)
-    let lastSentDate = ""
 
-    dailySchedulerHandle = setInterval(async () => {
+    const runDailyCheck = async () => {
         const now = new Date()
         const currentMinutes = now.getHours() * 60 + now.getMinutes()
-        const dateKey = now.toISOString().slice(0, 10)
+        const dateKey = getLocalDateKey(now)
 
-        if (currentMinutes < targetMinutes || dateKey === lastSentDate) return
+        // Hanya kirim pada menit yang tepat, tidak "mengejar" setelah lewat jam target.
+        if (currentMinutes !== targetMinutes || dateKey === lastDailySentDateKey) return
 
         try {
             await sendDailySummary(sock)
-            lastSentDate = dateKey
+            lastDailySentDateKey = dateKey
             console.log(`Laporan harian terkirim ke ${recipients.join(", ")} pada ${now.toLocaleString("id-ID")}`)
         } catch (err) {
             console.log("Gagal kirim laporan harian:", err.message)
         }
-    }, 30000)
+    }
+
+    // Cek langsung saat koneksi terbuka agar tidak kelewatan jika bot baru connect di menit target.
+    runDailyCheck()
+    dailySchedulerHandle = setInterval(runDailyCheck, 30000)
 
     console.log(`Daily scheduler aktif. Target kirim ${DAILY_SEND_TIME} (waktu server).`)
 }
