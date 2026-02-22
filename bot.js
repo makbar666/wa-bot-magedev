@@ -92,6 +92,37 @@ function parseHutangCommandInput(cleanText) {
     return { nama, nominal, nominalToken }
 }
 
+function isValidDateDDMMYYYY(value) {
+    return /^\d{2}\/\d{2}\/\d{4}$/.test(String(value || "").trim())
+}
+
+function parseAddAkunCommandInput(cleanText) {
+    const payload = String(cleanText || "").replace(/^\/addakun\b/i, "").trim()
+    if (!payload) return null
+
+    const tokens = payload.split(/\s+/).filter(Boolean)
+    if (tokens.length < 6) return null
+
+    const tanggalSelesai = tokens.pop()
+    const tanggalMulai = tokens.pop()
+    const pass = tokens.pop()
+    const email = tokens.pop()
+    const tipe = tokens.shift()
+    const user = tokens.join(" ").trim()
+
+    if (!tipe || !user || !email || !pass || !tanggalMulai || !tanggalSelesai) return null
+    if (!isValidDateDDMMYYYY(tanggalMulai) || !isValidDateDDMMYYYY(tanggalSelesai)) return null
+
+    return {
+        tipe,
+        user,
+        email,
+        pass,
+        tanggal_mulai: tanggalMulai,
+        tanggal_selesai: tanggalSelesai
+    }
+}
+
 async function sendDailySummary(sock) {
     const [totalResult, totalHutangResult] = await Promise.allSettled([
         axios.post(`${WEBHOOK_BASE_URL}/total`),
@@ -259,15 +290,19 @@ async function startBot() {
         } else if (command === "/info") {
             await sock.sendMessage(from, {
                 text:
-                    "Daftar perintah:\n" +
+                    "Perintah Pengeluaran:\n" +
                     "/keluar <nominal> <keterangan>\n" +
                     "/total\n" +
                     "/hariini\n" +
+                    "Perintah Hutang:\n" +
                     "/hutang <nama/keterangan bebas> <nominal>\n" +
                     "/totalhutang\n" +
                     "/listhutang\n" +
                     "/deletehutang <nama>\n" +
-                    "/deleteallhutang"
+                    "/deleteallhutang\n" +
+                    "/addakun <tipe> <user> <email> <pass> <dd/mm/yyyy> <dd/mm/yyyy>\n" +
+                    "/listakun\n" +
+                    "/deleteakun <user>"
             })
         } else if (command === "/hutang") {
             try {
@@ -378,6 +413,89 @@ async function startBot() {
                 })
             } catch (err) {
                 await sock.sendMessage(from, { text: "Gagal menghapus semua hutang." })
+            }
+        } else if (command === "/addakun") {
+            try {
+                const parsedAkun = parseAddAkunCommandInput(cleanText)
+                if (!parsedAkun) {
+                    return sock.sendMessage(from, {
+                        text:
+                            "Format salah. Contoh: /addakun Gemini jokowi akbar@gmail.com 12345 22/02/2026 22/03/2026"
+                    })
+                }
+
+                await axios.post(`${WEBHOOK_BASE_URL}/addakun`, {
+                    text: cleanText,
+                    ...parsedAkun
+                })
+
+                await sock.sendMessage(from, {
+                    text:
+                        `Akun berhasil ditambahkan:\n` +
+                        `Tipe: ${parsedAkun.tipe}\n` +
+                        `User: ${parsedAkun.user}\n` +
+                        `Mulai: ${parsedAkun.tanggal_mulai}\n` +
+                        `Selesai: ${parsedAkun.tanggal_selesai}`
+                })
+            } catch (err) {
+                await sock.sendMessage(from, { text: "Gagal menambahkan akun." })
+            }
+        } else if (command === "/listakun") {
+            try {
+                const res = await axios.post(`${WEBHOOK_BASE_URL}/listakun`, {
+                    text: cleanText
+                })
+
+                if (typeof res.data?.message === "string" && res.data.message.trim()) {
+                    return sock.sendMessage(from, { text: res.data.message })
+                }
+
+                const list = res.data?.items || res.data?.data || res.data?.akun || []
+                if (!Array.isArray(list) || list.length === 0) {
+                    return sock.sendMessage(from, { text: "Tidak ada data akun." })
+                }
+
+                const lines = list.map((item, i) => {
+                    const tipe = item.tipe || item.type || "-"
+                    const user = item.user || item.User || item.username || "-"
+                    const email = item.email || "-"
+                    const tanggalMulai = item.tanggal_mulai || item.tanggalMulai || item.mulai || "-"
+                    const tanggalSelesai =
+                        item.tanggal_selesai || item.tanggalSelesai || item.selesai || "-"
+
+                    return (
+                        `${i + 1}. ${tipe} - ${user}\n` +
+                        `   ${email}\n` +
+                        `   ${tanggalMulai} s/d ${tanggalSelesai}`
+                    )
+                })
+
+                await sock.sendMessage(from, {
+                    text: `List Akun:\n${lines.join("\n")}`
+                })
+            } catch (err) {
+                await sock.sendMessage(from, { text: "Gagal mengambil list akun." })
+            }
+        } else if (command === "/deleteakun") {
+            try {
+                const target = cleanText.replace(/^\/deleteakun\b/i, "").trim()
+                if (!target) {
+                    return sock.sendMessage(from, {
+                        text: "Format salah. Contoh: /deleteakun Jokowi"
+                    })
+                }
+
+                const res = await axios.post(`${WEBHOOK_BASE_URL}/deleteakun`, {
+                    text: cleanText,
+                    target,
+                    user: target
+                })
+
+                await sock.sendMessage(from, {
+                    text: res.data?.message || `Akun '${target}' berhasil dihapus.`
+                })
+            } catch (err) {
+                await sock.sendMessage(from, { text: "Gagal menghapus akun." })
             }
         }
     })
