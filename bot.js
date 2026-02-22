@@ -47,6 +47,51 @@ function getLocalDateKey(date = new Date()) {
     return `${year}-${month}-${day}`
 }
 
+function parseNominalInput(value) {
+    const raw = String(value || "").trim().toLowerCase()
+    if (!raw) return null
+
+    let text = raw.replace(/\s+/g, "")
+    let multiplier = 1
+
+    if (text.endsWith("rb")) {
+        multiplier = 1000
+        text = text.slice(0, -2)
+    } else if (text.endsWith("k")) {
+        multiplier = 1000
+        text = text.slice(0, -1)
+    } else if (text.endsWith("jt")) {
+        multiplier = 1000000
+        text = text.slice(0, -2)
+    } else if (text.endsWith("m")) {
+        multiplier = 1000000
+        text = text.slice(0, -1)
+    }
+
+    text = text.replace(/[.,_]/g, "")
+    if (!/^\d+$/.test(text)) return null
+
+    const nominal = Number(text) * multiplier
+    return Number.isFinite(nominal) ? nominal : null
+}
+
+function parseHutangCommandInput(cleanText) {
+    const payload = String(cleanText || "").replace(/^\/hutang\b/i, "").trim()
+    if (!payload) return null
+
+    const tokens = payload.split(/\s+/).filter(Boolean)
+    if (tokens.length < 2) return null
+
+    const nominalToken = tokens.pop()
+    const nominal = parseNominalInput(nominalToken)
+    if (!nominal) return null
+
+    const nama = tokens.join(" ").trim()
+    if (!nama) return null
+
+    return { nama, nominal, nominalToken }
+}
+
 async function sendDailySummary(sock) {
     const [totalResult, totalHutangResult] = await Promise.allSettled([
         axios.post(`${WEBHOOK_BASE_URL}/total`),
@@ -218,7 +263,7 @@ async function startBot() {
                     "/keluar <nominal> <keterangan>\n" +
                     "/total\n" +
                     "/hariini\n" +
-                    "/hutang <nama> <nominal>\n" +
+                    "/hutang <nama/keterangan bebas> <nominal>\n" +
                     "/totalhutang\n" +
                     "/listhutang\n" +
                     "/deletehutang <nama>\n" +
@@ -226,18 +271,25 @@ async function startBot() {
             })
         } else if (command === "/hutang") {
             try {
-                const parts = cleanText.split(" ")
-                if (parts.length < 3) {
-                    return sock.sendMessage(from, { text: "Format salah. Contoh: /hutang Budi 50000" })
+                const parsedHutang = parseHutangCommandInput(cleanText)
+                if (!parsedHutang) {
+                    return sock.sendMessage(from, {
+                        text: "Format salah. Contoh: /hutang pulsa tante riri 65000 (nominal di paling belakang)"
+                    })
                 }
 
-                await axios.post(`${WEBHOOK_BASE_URL}/hutang`, { text: cleanText })
+                await axios.post(`${WEBHOOK_BASE_URL}/hutang`, {
+                    text: cleanText,
+                    nama: parsedHutang.nama,
+                    nominal: parsedHutang.nominal,
+                    amount: parsedHutang.nominal,
+                    rawText: cleanText
+                })
 
-                const nominal = Number(parts[2])
-                const format = new Intl.NumberFormat("id-ID").format(nominal)
+                const format = new Intl.NumberFormat("id-ID").format(parsedHutang.nominal)
 
                 await sock.sendMessage(from, {
-                    text: `Hutang Rp ${format} ke ${parts[1]} berhasil dicatat.`
+                    text: `Hutang Rp ${format} untuk ${parsedHutang.nama} berhasil dicatat.`
                 })
             } catch (err) {
                 await sock.sendMessage(from, { text: "Gagal mencatat hutang." })
